@@ -1335,7 +1335,9 @@ class RESTfulAPI(CancelMixin):
                 finally:
                     await model.decrease_serve_count()
 
-            return EventSourceResponse(stream_results(), ping=XINFERENCE_SSE_PING_ATTEMPTS_SECONDS)
+            return EventSourceResponse(
+                stream_results(), ping=XINFERENCE_SSE_PING_ATTEMPTS_SECONDS
+            )
         else:
             try:
                 data = await model.generate(body.prompt, kwargs, raw_params=raw_kwargs)
@@ -2121,7 +2123,9 @@ class RESTfulAPI(CancelMixin):
                 finally:
                     await model.decrease_serve_count()
 
-            return EventSourceResponse(stream_results(), ping=XINFERENCE_SSE_PING_ATTEMPTS_SECONDS)
+            return EventSourceResponse(
+                stream_results(), ping=XINFERENCE_SSE_PING_ATTEMPTS_SECONDS
+            )
         else:
             try:
                 data = await model.chat(
