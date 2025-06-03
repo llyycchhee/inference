@@ -15,6 +15,7 @@ import concurrent.futures
 import importlib.util
 import logging
 import os
+import pprint
 import queue
 from typing import Iterator, List, Optional, Union
 
@@ -24,6 +25,7 @@ from ....types import ChatCompletion, ChatCompletionChunk, Completion, Completio
 from ..core import LLM
 from ..llm_family import LLMFamilyV1, LLMSpecV1
 from ..utils import ChatModelMixin
+from .memory import estimate_gpu_layers
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +97,12 @@ class XllamaCppModel(LLM, ChatModelMixin):
 
     def load(self):
         try:
-            from xllamacpp import CommonParams, Server
+            from xllamacpp import (
+                CommonParams,
+                Server,
+                get_device_info,
+                ggml_backend_dev_type,
+            )
         except ImportError:
             error_message = "Failed to import module 'xllamacpp'"
             installation_guide = ["Please make sure 'xllamacpp' is installed. "]
@@ -135,6 +142,15 @@ class XllamaCppModel(LLM, ChatModelMixin):
                 if os.path.exists(legacy_model_file_path):
                     model_path = legacy_model_file_path
 
+        multimodal_projector = self._llamacpp_model_config.get(
+            "multimodal_projector", ""
+        )
+        mmproj = (
+            os.path.join(self.model_path, multimodal_projector)
+            if multimodal_projector
+            else ""
+        )
+
         try:
             params = CommonParams()
             # Compatible with xllamacpp changes
@@ -142,6 +158,7 @@ class XllamaCppModel(LLM, ChatModelMixin):
                 params.model = model_path
             except Exception:
                 params.model.path = model_path
+            params.mmproj.path = mmproj
             if self.model_family.chat_template:
                 params.chat_template = self.model_family.chat_template
             # This is the default value, could be overwritten by _llamacpp_model_config
@@ -165,6 +182,41 @@ class XllamaCppModel(LLM, ChatModelMixin):
                 # Number of layers to offload to GPU (-ngl). If -1, all layers are offloaded.
                 # 0x7FFFFFFF is INT32 max, will be auto set to all layers
                 params.n_gpu_layers = 0x7FFFFFFF
+                try:
+                    device_info = get_device_info()
+                    gpus = [
+                        info
+                        for info in device_info
+                        if info["type"]
+                        == ggml_backend_dev_type.GGML_BACKEND_DEVICE_TYPE_GPU
+                    ]
+                    if gpus:
+                        logger.info(
+                            "Try to estimate num gpu layers, n_ctx: %s, n_batch: %s, n_parallel: %s, gpus:\n%s",
+                            params.n_ctx,
+                            params.n_batch,
+                            params.n_parallel,
+                            pprint.pformat(gpus),
+                        )
+                        estimate = estimate_gpu_layers(
+                            gpus=gpus,
+                            model_path=model_path,
+                            projectors=[mmproj] if mmproj else [],
+                            context_length=params.n_ctx,
+                            batch_size=params.n_batch,
+                            num_parallel=params.n_parallel,
+                            kv_cache_type="",
+                        )
+                        logger.info("Estimate num gpu layers: %s", estimate)
+                        if estimate.tensor_split:
+                            params.tensor_split = estimate.tensor_split
+                        else:
+                            params.n_gpu_layers = estimate.layers
+                except Exception as e:
+                    logger.exception(
+                        "Estimate num gpu layers for llama.cpp backend failed: %s", e
+                    )
+
             self._llm = Server(params)
             self._executor = concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(10, n_threads)
@@ -207,11 +259,13 @@ class XllamaCppModel(LLM, ChatModelMixin):
                     q.put(res)
                 except Exception as e:
                     logger.exception("handle_completions callback failed: %s", e)
+                    q.put(_Error(str(e)))
 
             try:
                 self._llm.handle_completions(prompt_json, _error_callback, _ok_callback)
             except Exception as ex:
                 logger.exception("handle_completions failed: %s", ex)
+                q.put(_Error(str(ex)))
             q.put(_Done)
 
         assert self._executor
@@ -271,6 +325,7 @@ class XllamaCppModel(LLM, ChatModelMixin):
                     q.put(res)
                 except Exception as e:
                     logger.exception("handle_chat_completions callback failed: %s", e)
+                    q.put(_Error(str(e)))
 
             try:
                 self._llm.handle_chat_completions(
@@ -278,6 +333,7 @@ class XllamaCppModel(LLM, ChatModelMixin):
                 )
             except Exception as ex:
                 logger.exception("handle_chat_completions failed: %s", ex)
+                q.put(_Error(str(ex)))
             q.put(_Done)
 
         assert self._executor
@@ -288,7 +344,7 @@ class XllamaCppModel(LLM, ChatModelMixin):
             def _to_iterator():
                 while (r := q.get()) is not _Done:
                     if type(r) is _Error:
-                        raise Exception("Got error in chat stream: %s", r.msg)
+                        raise Exception(f"Got error in chat stream: {r.msg}")
                     # Get valid keys (O(1) lookup)
                     chunk_keys = ChatCompletionChunk.__annotations__
                     # The chunk may contain additional keys (e.g., system_fingerprint),
@@ -302,5 +358,5 @@ class XllamaCppModel(LLM, ChatModelMixin):
         else:
             r = q.get()
             if type(r) is _Error:
-                raise Exception("Got error in chat: %s", r.msg)
+                raise Exception(f"Got error in chat: {r.msg}")
             return self._to_chat_completion(r, self.reasoning_parser)

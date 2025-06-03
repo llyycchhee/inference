@@ -73,7 +73,7 @@ def generate_engine_config_by_model_family(model_family):
         model_size_in_billions = spec.model_size_in_billions
         quantizations = spec.quantizations
         for quantization in quantizations:
-            # traverse all supported engines to match the name, format, size in billions and quatization of model
+            # traverse all supported engines to match the name, format, size in billions and quantization of model
             for engine in SUPPORTED_ENGINES:
                 if not check_format_with_engine(
                     model_format, engine
@@ -107,6 +107,10 @@ def generate_engine_config_by_model_family(model_family):
                                     "llm_class": cls,
                                 }
                             )
+                            if hasattr(spec, "multimodal_projectors"):
+                                engine_params[-1][
+                                    "multimodal_projectors"
+                                ] = spec.multimodal_projectors
                         engines[engine] = engine_params
                         break
     LLM_ENGINES[model_name] = engines
@@ -163,35 +167,8 @@ def _install():
     from .lmdeploy.core import LMDeployChatModel, LMDeployModel
     from .mlx.core import MLXChatModel, MLXModel, MLXVisionModel
     from .sglang.core import SGLANGChatModel, SGLANGModel, SGLANGVisionModel
-    from .transformers.chatglm import ChatglmPytorchChatModel
-    from .transformers.cogagent import CogAgentChatModel
-    from .transformers.cogvlm2 import CogVLM2Model
-    from .transformers.cogvlm2_video import CogVLM2VideoModel
     from .transformers.core import PytorchChatModel, PytorchModel
-    from .transformers.deepseek_v2 import (
-        DeepSeekV2PytorchChatModel,
-        DeepSeekV2PytorchModel,
-    )
-    from .transformers.deepseek_vl import DeepSeekVLChatModel
-    from .transformers.deepseek_vl2 import DeepSeekVL2ChatModel
-    from .transformers.gemma3 import Gemma3ChatModel, Gemma3TextChatModel
-    from .transformers.glm4v import Glm4VModel
-    from .transformers.glm_edge_v import GlmEdgeVModel
-    from .transformers.minicpmv25 import MiniCPMV25Model
-    from .transformers.minicpmv26 import MiniCPMV26Model
-    from .transformers.opt import OptPytorchModel
-    from .transformers.ovis2 import Ovis2ChatModel
-    from .transformers.qwen2_audio import Qwen2AudioChatModel
-    from .transformers.qwen_vl import QwenVLChatModel
     from .vllm.core import VLLMChatModel, VLLMModel, VLLMVisionModel
-
-    try:
-        from .transformers.omnilmm import OmniLMMModel
-    except ImportError as e:
-        # For quite old transformers version,
-        # import will generate error
-        OmniLMMModel = None
-        warnings.warn(f"Cannot import OmniLLMModel due to reason: {e}")
 
     # register llm classes.
     LLAMA_CLASSES.extend(
@@ -203,32 +180,7 @@ def _install():
     VLLM_CLASSES.extend([VLLMModel, VLLMChatModel, VLLMVisionModel])
     MLX_CLASSES.extend([MLXModel, MLXChatModel, MLXVisionModel])
     LMDEPLOY_CLASSES.extend([LMDeployModel, LMDeployChatModel])
-    TRANSFORMERS_CLASSES.extend(
-        [
-            ChatglmPytorchChatModel,
-            PytorchChatModel,
-            QwenVLChatModel,
-            Qwen2AudioChatModel,
-            DeepSeekVLChatModel,
-            DeepSeekVL2ChatModel,
-            PytorchModel,
-            CogVLM2Model,
-            CogVLM2VideoModel,
-            MiniCPMV25Model,
-            MiniCPMV26Model,
-            Glm4VModel,
-            DeepSeekV2PytorchModel,
-            DeepSeekV2PytorchChatModel,
-            OptPytorchModel,
-            GlmEdgeVModel,
-            CogAgentChatModel,
-            Gemma3TextChatModel,
-            Gemma3ChatModel,
-            Ovis2ChatModel,
-        ]
-    )
-    if OmniLMMModel:  # type: ignore
-        TRANSFORMERS_CLASSES.append(OmniLMMModel)
+    TRANSFORMERS_CLASSES.extend([PytorchChatModel, PytorchModel])
 
     # support 4 engines for now
     SUPPORTED_ENGINES["vLLM"] = VLLM_CLASSES

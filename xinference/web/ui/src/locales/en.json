@@ -53,6 +53,7 @@
     "modelFormat": "Model Format",
     "modelSize": "Model Size",
     "quantization": "Quantization",
+    "multimodelProjector": "Multimodel Projector",
     "nGPU": "GPU Count per Replica",
     "nGPUPerWorker": "GPU Count per Worker",
     "nGpuLayers": "N GPU Layers",
@@ -206,6 +207,7 @@
   },
 
   "components": {
-    "copySuccess": "Copied to clipboard!"
+    "copySuccess": "Copied to clipboard!",
+    "suggestsCommonParameters": "Suggests common parameters; others allowed."
   }
 }
