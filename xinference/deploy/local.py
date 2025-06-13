@@ -134,3 +134,7 @@ def main(
         )
     finally:
         local_cluster.kill()
+
+if __name__ == "__main__":
+    from .cmdline import local
+    local()
