@@ -340,6 +340,11 @@ The following is a list of built-in LLM in Xinference:
      - chat
      - 1024000
      - The Mistral-Nemo-Instruct-2407 Large Language Model (LLM) is an instruct fine-tuned version of the Mistral-Nemo-Base-2407
+    
+     * - :ref:`mistral-small-3.1-instruct <models_llm_mistral-small-3.1-instruct>`
+     - chat, vision
+     - 131072
+     - The Mistral-Nemo-Instruct-2407 Large Language Model (LLM) is an instruct fine-tuned version of the Mistral-Nemo-Base-2407
 
    * - :ref:`mistral-v0.1 <models_llm_mistral-v0.1>`
      - generate
@@ -730,7 +735,9 @@ The following is a list of built-in LLM in Xinference:
    mistral-large-instruct
   
    mistral-nemo-instruct
-  
+
+   mistral-small-3.1-instruct
+   
    mistral-v0.1
   
    mixtral-8x22b-instruct-v0.1

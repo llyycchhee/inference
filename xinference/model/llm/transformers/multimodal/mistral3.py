@@ -13,6 +13,7 @@
 # limitations under the License.
 import importlib.util
 import logging
+import torch
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from .....core.model import register_batching_multimodal_models
@@ -131,6 +132,9 @@ class Mistral3ChatModel(PytorchMultiModalModel):
             return_tensors="pt",
         )
         inputs = inputs.to(self._device)
+        # 新增：如果模型权重是 float16，则输入也转为 float16
+        if hasattr(self._model, 'dtype') and self._model.dtype == torch.float16:
+            inputs = {k: v.half() if hasattr(v, 'half') else v for k, v in inputs.items()}
         return inputs
 
     def build_generate_kwargs(self, generate_config: Dict) -> Dict[str, Any]:
@@ -198,6 +202,8 @@ class Mistral3ChatModel(PytorchMultiModalModel):
             return_tensors="pt",
         )
         inputs = inputs.to(self._model.device)
+        if hasattr(self._model, 'dtype') and self._model.dtype == torch.float16:
+            inputs = {k: v.half() if hasattr(v, 'half') else v for k, v in inputs.items()}
         for r, _ids, attn_mask in zip(
             req_list, inputs["input_ids"], inputs["attention_mask"]
         ):
