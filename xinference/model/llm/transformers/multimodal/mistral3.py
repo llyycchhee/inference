@@ -134,7 +134,10 @@ class Mistral3ChatModel(PytorchMultiModalModel):
         inputs = inputs.to(self._device)
         # 新增：如果模型权重是 float16，则输入也转为 float16
         if hasattr(self._model, 'dtype') and self._model.dtype == torch.float16:
-            inputs = {k: v.half() if hasattr(v, 'half') else v for k, v in inputs.items()}
+            for k in inputs:
+                # 只对浮点型张量做 half，input_ids 不能 half
+                if hasattr(inputs[k], 'dtype') and torch.is_floating_point(inputs[k]):
+                    inputs[k] = inputs[k].half()
         return inputs
 
     def build_generate_kwargs(self, generate_config: Dict) -> Dict[str, Any]:
@@ -203,15 +206,8 @@ class Mistral3ChatModel(PytorchMultiModalModel):
         )
         inputs = inputs.to(self._model.device)
         if hasattr(self._model, 'dtype') and self._model.dtype == torch.float16:
-            inputs = {k: v.half() if hasattr(v, 'half') else v for k, v in inputs.items()}
-        for r, _ids, attn_mask in zip(
-            req_list, inputs["input_ids"], inputs["attention_mask"]
-        ):
-            r.prompt_tokens = _ids.tolist()
-            real_len = torch.sum(attn_mask).item()
-            r.padding_len = attn_mask.numel() - real_len
-            r.extra_kwargs["attention_mask_seq_len"] = real_len
-        input_ids = inputs["input_ids"]
-        batch_size, seq_len = input_ids.shape
-        position_ids = self.build_prefill_position_ids(batch_size, seq_len, req_list)
-        return {**inputs, "position_ids": position_ids}
+            for k in inputs:
+                # 只对浮点型张量做 half，input_ids 不能 half
+                if hasattr(inputs[k], 'dtype') and torch.is_floating_point(inputs[k]):
+                    inputs[k] = inputs[k].half()
+        return inputs
