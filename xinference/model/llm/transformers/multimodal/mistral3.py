@@ -74,8 +74,10 @@ class Mistral3ChatModel(PytorchMultiModalModel):
     def load_multimodal_model(self):
         from transformers import AutoModelForImageTextToText
         self._model = AutoModelForImageTextToText.from_pretrained(
-            self.model_path, device_map="auto",
+            self.model_path, 
+            device_map="auto",
             attn_implementation="flash_attention_2",
+            torch_dtype=torch.float16,
             trust_remote_code=True,
         ).eval()
 
