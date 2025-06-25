@@ -10556,9 +10556,9 @@
         "model_format": "gptq",
         "model_size_in_billions": 24,
         "quantizations": [
-          "Int4"
+          "none"
         ],
-        "model_id": "OPEA/Mistral-Small-3.1-24B-Instruct-2503-int4-AutoRound-gptq-sym"
+        "model_id": "ISTA-DASLab/Mistral-Small-3.1-24B-Instruct-2503-GPTQ-4b-128g"
       },
       {
         "model_format": "ggufv2",

@@ -18,7 +18,6 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from .....core.model import register_batching_multimodal_models
 from .....core.scheduler import InferenceRequest
-from .....device_utils import is_npu_available
 from .....model.utils import select_device
 from .....types import PytorchModelConfig
 from ...llm_family import LLMFamilyV1, LLMSpecV1, register_transformer
@@ -28,9 +27,6 @@ from .core import PytorchMultiModalModel
 logger = logging.getLogger(__name__)
 
 
-@register_batching_multimodal_models(
-    "mistral-small-3.1-instruct"
-)
 @register_transformer
 @register_non_default_model(
     "mistral-small-3.1-instruct"
@@ -76,74 +72,36 @@ class Mistral3ChatModel(PytorchMultiModalModel):
         self._tokenizer = self._processor.tokenizer
 
     def load_multimodal_model(self):
-        from transformers import Mistral3ForConditionalGeneration
-
-        kwargs = self.apply_bnb_quantization()
-        flash_attn_installed = importlib.util.find_spec("flash_attn") is not None
-        # llm_family = self.model_family.model_family or self.model_family.model_name
-        model_cls = Mistral3ForConditionalGeneration
-        if model_cls is None:
-            raise ImportError("`transformers` version is too old, please upgrade it")
-        device = "auto" if self._device == "cuda" else self._device
-        if flash_attn_installed:
-            self._model = model_cls.from_pretrained(
-                self.model_path,
-                torch_dtype="bfloat16",
-                device_map=device,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=True,
-                **kwargs,
-            ).eval()
-        elif is_npu_available():
-            # Ascend do not support bf16
-            self._model = model_cls.from_pretrained(
-                self.model_path,
-                device_map="auto",
-                trust_remote_code=True,
-                torch_dtype="float16",
-                **kwargs,
-            ).eval()
-        else:
-            self._model = model_cls.from_pretrained(
-                self.model_path,
-                device_map=device,
-                trust_remote_code=True,
-                **kwargs,
-            ).eval()
+        from transformers import AutoModelForImageTextToText
+        self._model = AutoModelForImageTextToText.from_pretrained(
+            self.model_path, device_map="auto",
+            attn_implementation="flash_attention_2",
+            trust_remote_code=True,
+        ).eval()
 
     def build_inputs_from_messages(
         self,
         messages: List[Dict],
         generate_config: Dict,
     ):
-        from qwen_vl_utils import process_vision_info
+        inputs = self._processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=True,
+            return_dict=True, return_tensors="pt"
+        ).to(self._model.device, dtype=torch.bfloat16)
 
-        messages = self._transform_messages(messages)
-        # Preparation for inference
-        text = self._processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = self._processor(
-            text=[text],
-            images=image_inputs,
-            # videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
-        inputs = inputs.to(self._device)
-        # 新增：如果模型权重是 float16，则输入也转为 float16
-        if hasattr(self._model, 'dtype') and self._model.dtype == torch.float16:
-            for k in inputs:
-                # 只对浮点型张量做 half，input_ids 不能 half
-                if hasattr(inputs[k], 'dtype') and torch.is_floating_point(inputs[k]):
-                    inputs[k] = inputs[k].half()
         return inputs
 
     def build_generate_kwargs(self, generate_config: Dict) -> Dict[str, Any]:
-        max_new_tokens = generate_config.get("max_tokens", 512)
+        max_new_tokens = generate_config.get("max_tokens", 1000)
         temperature = generate_config.get("temperature", 1)
-        return {"max_new_tokens": max_new_tokens, "temperature": temperature}
+        bos_token_id = generate_config.get("bos_token_id", 1)
+        eos_token_id = generate_config.get("eos_token_id", 2)
+        return {
+            "max_new_tokens": max_new_tokens,
+            "temperature": temperature,
+            "bos_token_id": bos_token_id,
+            "eos_token_id": eos_token_id,
+        }
 
     def build_streaming_iter(
         self,
@@ -164,7 +122,14 @@ class Mistral3ChatModel(PytorchMultiModalModel):
 
         def model_generate():
             try:
-                return self._model.generate(**inputs, **config, streamer=streamer)
+                input_len = inputs["input_ids"].shape[-1]
+                with torch.inference_mode():
+                    print("input_ids shape:", inputs["input_ids"].shape)
+                    print("max_new_tokens:", config.get("max_new_tokens"))
+                    print("device:", self._model.device)
+                    generation = self._model.generate(**inputs, do_sample=False,**config, streamer=streamer)
+                    generation = generation[0][input_len:]
+                    return generation
             except Exception:
                 streamer.end()
                 raise
@@ -190,24 +155,9 @@ class Mistral3ChatModel(PytorchMultiModalModel):
 
     def build_prefill_kwargs(self, prompts: List, req_list: List[InferenceRequest]):
         import torch
-        from qwen_vl_utils import process_vision_info
 
-        batch_text = self._processor.apply_chat_template(
-            prompts, tokenize=False, add_generation_prompt=True
-        )
-        image_inputs, video_inputs = process_vision_info(prompts)
-        inputs = self._processor(
-            text=batch_text,
-            images=image_inputs,
-            # videos=video_inputs,
-            padding=True,
-            padding_side="left",
-            return_tensors="pt",
-        )
-        inputs = inputs.to(self._model.device)
-        if hasattr(self._model, 'dtype') and self._model.dtype == torch.float16:
-            for k in inputs:
-                # 只对浮点型张量做 half，input_ids 不能 half
-                if hasattr(inputs[k], 'dtype') and torch.is_floating_point(inputs[k]):
-                    inputs[k] = inputs[k].half()
+        inputs = self._processor.apply_chat_template(
+            prompts, add_generation_prompt=True, tokenize=True,
+            return_dict=True, return_tensors="pt"
+        ).to(self._model.device, dtype=torch.bfloat16)
         return inputs
