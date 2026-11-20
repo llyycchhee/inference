@@ -8,6 +8,12 @@ request_tools_var: ContextVar[Optional[List[Dict[str, Any]]]] = ContextVar(
     "request_tools", default=None
 )
 
+# The mutable dictionary is owned by one request, provided by the chat helper.
+# ContextVar scopes access to it without storing progress on a shared parser.
+request_tool_state_var: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "request_tool_state", default=None
+)
+
 
 class ToolArgumentsDelta(NamedTuple):
     """An already serialized fragment of OpenAI function arguments."""

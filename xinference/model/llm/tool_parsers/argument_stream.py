@@ -24,6 +24,7 @@ class ArgumentStart:
     allow_control_chars: bool = False
     json_suffix: str = ""
     close_frame: Optional[Callable[[str, int], int]] = None
+    terminators: Tuple[str, ...] = ()
 
 
 class ArgumentReader:
@@ -73,11 +74,11 @@ class ArgumentReader:
         return end, "".join(pieces)
 
     def _string_end(self, text: str, start: ArgumentStart) -> int:
-        end = text.find(start.terminator, self.position)
+        markers = (start.terminator, *start.terminators)
+        ends = [text.find(marker, self.position) for marker in markers]
+        end = min((end for end in ends if end != -1), default=-1)
         if end == -1:
-            end = len(text) - ToolParser._partial_marker_length(
-                text, (start.terminator,)
-            )
+            end = len(text) - ToolParser._partial_marker_length(text, markers)
         else:
             self.closed = True
         for char in start.boundaries:

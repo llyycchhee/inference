@@ -60,7 +60,11 @@ from ...utils import dependency_import_guard
 from .core import chat_context_var
 from .media import load_media_bytes
 from .reasoning_parser import ReasoningParser
-from .tool_parsers.abstract_tool_parser import ToolArgumentsDelta, request_tools_var
+from .tool_parsers.abstract_tool_parser import (
+    ToolArgumentsDelta,
+    request_tool_state_var,
+    request_tools_var,
+)
 from .tool_parsers.argument_stream import ArgumentStream
 from .tool_parsers.glm4_tool_parser import Glm4ToolParser
 from .tool_parsers.llama3_tool_parser import Llama3StreamState, Llama3ToolParser
@@ -1230,6 +1234,7 @@ class ChatModelMixin:
         tool_result = None
         finish_reason = None
         token = request_tools_var.set(tools)
+        state_token = request_tool_state_var.set(tool_call_state)
         try:
             if isinstance(self.tool_parser, Glm4ToolParser) and "name" in c:
                 tool_result = self.tool_parser.extract_tool_calls_streaming(
@@ -1325,6 +1330,7 @@ class ChatModelMixin:
                             tool_result = (suffix, None, None)
                 previous_texts[-1] = current_text
         finally:
+            request_tool_state_var.reset(state_token)
             request_tools_var.reset(token)
         if tool_result is None and not finish_reason:
             return None

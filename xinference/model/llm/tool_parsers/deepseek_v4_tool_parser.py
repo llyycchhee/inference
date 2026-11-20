@@ -4,8 +4,9 @@ import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from . import register_tool_parser
-from .abstract_tool_parser import ToolParser, request_tools_var
+from .abstract_tool_parser import ToolParser, request_tool_state_var, request_tools_var
 from .argument_stream import ArgumentStart, dsml_argument_start
+from .deepseek_v4_stream import DeepseekV4StreamState
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,16 @@ class DeepseekV4ToolParser(ToolParser):
         self._wrapper_open, self._wrapper_close, self._parameter_regex = (
             self._build_regexes()
         )
+
+    @staticmethod
+    def _request_stream_state():
+        request_state = request_tool_state_var.get()
+        if request_state is None:
+            return None
+        state = request_state.get("deepseek_v4_stream")
+        if state is None:
+            state = request_state["deepseek_v4_stream"] = DeepseekV4StreamState()
+        return state
 
     def _build_regexes(self) -> Tuple[re.Pattern, re.Pattern, re.Pattern]:
         """Compile structural patterns accepting plain and DSML spellings."""
@@ -265,7 +276,7 @@ class DeepseekV4ToolParser(ToolParser):
         # A marker with one literal space cannot hold a header split across
         # arbitrary whitespace accepted by the structural scanner (\s+).
         pending = re.search(
-            r'<(?:｜DSML｜)?invoke(?:\s+(?:n|na|nam|name(?:=(?:"[^>]*)?)?)?)?$',
+            r'<(?:｜DSML｜)?invoke(?:\s+(?:n(?:a(?:m(?:e(?:=(?:"[^>]*)?)?)?)?)?)?)?$',
             text,
         )
         return max(held, len(pending[0]) if pending else 0)
@@ -341,6 +352,8 @@ class DeepseekV4ToolParser(ToolParser):
         return events or None
 
     def flush_streaming_content(self, text: str) -> Optional[str]:
+        if (state := self._request_stream_state()) is not None:
+            return state.finish(text)
         if any(tok in text for tok in self.tool_call_start_tokens):
             return None
         frames = list(self._invoke_frames(text))
@@ -368,6 +381,8 @@ class DeepseekV4ToolParser(ToolParser):
         return text[-held:] if held else None
 
     def locate_argument_start(self, text: str) -> Optional[ArgumentStart]:
+        if (state := self._request_stream_state()) is not None:
+            return state.argument_start
         dsml = self._detect_format(text)
         # Tolerant frames are buffered until a complete invoke is validated.
         # The shared incremental argument reader expects one exact dialect.
@@ -408,6 +423,8 @@ class DeepseekV4ToolParser(ToolParser):
             invokes.
         """
         try:
+            if (state := self._request_stream_state()) is not None:
+                return state.feed(self, current_text, delta_text)
             if not any(tok in current_text for tok in self.tool_call_start_tokens):
                 return self._stream_orphans(current_text, delta_text)
 
